@@ -1,166 +1,345 @@
 <!DOCTYPE html>
-  <html lang="en">
+<html lang="en">
   <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Task Manager - Secure Login</title>
-      <style>
+      <title>ODB Task Manager</title>
+    <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .container { max-width: 400px; width: 100%; }
-        .login-box { background: white; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); padding: 40px; }
-        h1 { text-align: center; color: #333; margin-bottom: 30px; font-size: 28px; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; color: #555; font-weight: 500; }
-        input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 16px; transition: border-color 0.3s; }
-        input:focus { outline: none; border-color: #667eea; }
-        button { width: 100%; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s; }
-        button:hover { transform: translateY(-2px); }
-        button:active { transform: translateY(0); }
-        .error { color: #d32f2f; background: #ffebee; padding: 12px; border-radius: 5px; margin-bottom: 20px; display: none; }
-                .success { color: #388e3c; background: #e8f5e9; padding: 12px; border-radius: 5px; margin-bottom: 20px; display: none; }
-                .users-list { background: #f5f5f5; padding: 20px; border-radius: 5px; margin-top: 30px; }
-                          .users-list h3 { font-size: 14px; color: #666; margin-bottom: 10px; }
-        .users-list p { font-size: 13px; color: #999; line-height: 1.6; }
-                  #taskContainer { display: none; background: white; border-radius: 10px; padding: 30px; margin-top: 20px; }
-        .task-item { background: #f5f5f5; padding: 15px; margin-bottom: 10px; border-radius: 5px; border-left: 4px solid #667eea; }
-                  .task-title { font-weight: 600; color: #333; }
-        .task-meta { font-size: 13px; color: #999; margin-top: 8px; }
-        .logout-btn { background: #d32f2f; margin-top: 20px; }
-                  .logout-btn:hover { background: #b71c1c; }
-              </style>
-          </head>
-          <body>
-              <div class="container">
-                  <div class="login-box" id="loginForm">
-                      <h1>🔐 Task Manager</h1>
-                      <div class="error" id="errorMsg"></div>
-                      <div class="success" id="successMsg"></div>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); min-height: 100vh; }
+          /* Login page */
+          .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+          .login-card { background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); padding: 40px; width: 100%; max-width: 420px; }
+          .login-logo { text-align: center; margin-bottom: 30px; }
+          .login-logo h1 { font-size: 24px; font-weight: 700; color: #1a1a2e; }
+          .login-logo p { color: #666; font-size: 14px; margin-top: 5px; }
+          .form-group { margin-bottom: 20px; }
+          label { display: block; margin-bottom: 8px; color: #444; font-weight: 500; font-size: 14px; }
+          input { width: 100%; padding: 12px 16px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px; transition: border-color 0.2s; outline: none; }
+          input:focus { border-color: #0f3460; }
+          .login-btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+          .login-btn:hover { opacity: 0.9; }
+          .error-msg { background: #fff5f5; border: 1px solid #fed7d7; color: #c53030; padding: 12px; border-radius: 8px; font-size: 14px; margin-bottom: 16px; display: none; }
+          .team-list { margin-top: 24px; background: #f8f9fa; border-radius: 8px; padding: 16px; }
+          .team-list h3 { font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+          .team-member { display: flex; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; }
+          .team-member:last-child { border-bottom: none; }
+          .member-avatar { width: 32px; height: 32px; border-radius: 50%; background: #0f3460; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; margin-right: 10px; flex-shrink: 0; }
+          .member-info { flex: 1; }
+          .member-name { font-size: 13px; font-weight: 600; color: #333; }
+          .member-email { font-size: 11px; color: #888; }
+          .member-role { font-size: 11px; color: #0f3460; font-weight: 500; }
+          /* Dashboard */
+          #dashboard { display: none; }
+          .header { background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%); color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+          .header-left { display: flex; align-items: center; gap: 12px; }
+          .header h2 { font-size: 18px; font-weight: 700; }
+          .user-badge { background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 20px; font-size: 13px; }
+          .logout-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.2s; }
+          .logout-btn:hover { background: rgba(255,255,255,0.2); }
+          .main-content { max-width: 1100px; margin: 0 auto; padding: 24px; }
+          .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 24px; }
+          .stat-card { background: white; border-radius: 10px; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+          .stat-number { font-size: 32px; font-weight: 700; color: #0f3460; }
+          .stat-label { font-size: 12px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .controls { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+          .filter-group { display: flex; gap: 8px; flex-wrap: wrap; }
+          select { padding: 8px 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; outline: none; cursor: pointer; }
+          select:focus { border-color: #0f3460; }
+          .add-task-btn { background: #0f3460; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; white-space: nowrap; }
+          .add-task-btn:hover { opacity: 0.85; }
+          .tasks-grid { display: grid; gap: 12px; }
+          .task-card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 5px solid #e0e0e0; transition: transform 0.15s, box-shadow 0.15s; }
+          .task-card:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+          .task-card.priority-High { border-left-color: #e53e3e; }
+          .task-card.priority-Medium { border-left-color: #dd6b20; }
+          .task-card.priority-Low { border-left-color: #38a169; }
+          .task-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+          .task-title { font-size: 15px; font-weight: 600; color: #1a1a2e; flex: 1; }
+          .task-badges { display: flex; gap: 6px; flex-shrink: 0; }
+          .badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+          .badge-high { background: #fed7d7; color: #c53030; }
+          .badge-medium { background: #feebc8; color: #c05621; }
+          .badge-low { background: #c6f6d5; color: #276749; }
+          .badge-category { background: #e9d8fd; color: #553c9a; }
+          .badge-status-Active { background: #e8f4fd; color: #2b6cb0; }
+          .badge-status-Completed { background: #c6f6d5; color: #276749; }
+          .badge-status-On.Hold { background: #fefcbf; color: #744210; }
+          .task-desc { font-size: 13px; color: #666; margin-bottom: 12px; line-height: 1.5; }
+          .task-meta { display: flex; gap: 16px; font-size: 12px; color: #888; flex-wrap: wrap; align-items: center; }
+          .task-actions { display: flex; gap: 8px; margin-top: 12px; }
+          .btn-complete { background: #38a169; color: white; border: none; padding: 6px 12px; border-radius: 5px; font-size: 12px; cursor: pointer; }
+          .btn-delete { background: #e53e3e; color: white; border: none; padding: 6px 12px; border-radius: 5px; font-size: 12px; cursor: pointer; }
+          .btn-complete:hover { opacity: 0.85; }
+          .btn-delete:hover { opacity: 0.85; }
+          /* Modal */
+          .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
+          .modal-overlay.active { display: flex; }
+          .modal { background: white; border-radius: 12px; padding: 30px; width: 100%; max-width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+          .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 20px; color: #1a1a2e; }
+          .modal .form-group { margin-bottom: 16px; }
+          .modal input, .modal select, .modal textarea { width: 100%; padding: 10px 14px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; outline: none; font-family: inherit; }
+          .modal input:focus, .modal select:focus, .modal textarea:focus { border-color: #0f3460; }
+          .modal textarea { height: 80px; resize: vertical; }
+          .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+          .btn-cancel { background: #f0f0f0; color: #333; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+          .btn-save { background: #0f3460; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }
+          .empty-state { text-align: center; padding: 60px 20px; color: #888; }
+          .empty-state h3 { font-size: 18px; margin-bottom: 8px; }
+          @media (max-width: 600px) { .main-content { padding: 16px; } .controls { flex-direction: column; } }
+        </style>
+  </head>
+  <body>
 
-                      <div class="form-group">
-                          <label for="username">Username</label>
-                          <input type="text" id="username" placeholder="e.g., Erik, John, Jane, Mike, Sarah" required>
-                      </div>
+    <!-- Login Page -->
+    <div class="login-page" id="loginPage">
+        <div class="login-card">
+              <div class="login-logo">
+                      <h1>ODB Task Manager</h1>
+                    <p>Overland Design-Build</p>
+              </div>div>
+            <div class="error-msg" id="loginError"></div>div>
+            <div class="form-group">
+                  <label for="emailInput">Work Email</label>label>
+                  <input type="email" id="emailInput" placeholder="yourname@overlanddesignbuild.com" autocomplete="email">
+            </div>div>
+            <div class="form-group">
+                  <label for="passwordInput">Password</label>label>
+                  <input type="password" id="passwordInput" placeholder="Enter your password" autocomplete="current-password">
+            </div>div>
+            <button class="login-btn" onclick="doLogin()">Sign In</button>button>
+            <div class="team-list">
+                  <h3>Active Team Members</h3>
+                  <div class="team-member">
+                          <div class="member-avatar">EC</div>div>
+                          <div class="member-info">
+                                    <div class="member-name">Erik Carver</div>div>
+                                    <div class="member-email">erik.carver@overlanddesignbuild.com</div>div>
+                                    <div class="member-role">Owner &bull; Admin</div>div>
+                          </div>div>
+                  </div>div>
+                  <div class="team-member">
+                          <div class="member-avatar">RB</div>div>
+                          <div class="member-info">
+                                    <div class="member-name">Randy Blake</div>div>
+                                    <div class="member-email">randy.b@overlanddesignbuild.com</div>div>
+                                    <div class="member-role">Technician &bull; Production</div>div>
+                          </div>div>
+                  </div>div>
+                  <div class="team-member">
+                          <div class="member-avatar">HE</div>div>
+                          <div class="member-info">
+                                    <div class="member-name">Henry Ellwood</div>div>
+                                    <div class="member-email">vince.e@overlanddesignbuild.com</div>div>
+                                    <div class="member-role">Operations Manager &bull; Operations</div>div>
+                          </div>div>
+                  </div>div>
+                  <div class="team-member">
+                          <div class="member-avatar">NR</div>div>
+                          <div class="member-info">
+                                    <div class="member-name">Nathan Runolfson</div>div>
+                                    <div class="member-email">nate.r@overlanddesignbuild.com</div>div>
+                                    <div class="member-role">Shop Foreman &bull; Production</div>div>
+                          </div>div>
+                  </div>div>
+            </div>div>
+        </div>div>
+    </div>div>
+  
+  <!-- Dashboard -->
+  <div id="dashboard">
+    <div class="header">
+        <div class="header-left">
+              <h2>ODB Task Manager</h2>
+              <span class="user-badge" id="userBadge"></span>span>
+        </div>div>
+        <button class="logout-btn" onclick="doLogout()">Sign Out</button>button>
+    </div>div>
+    <div class="main-content">
+        <div class="stats-row">
+              <div class="stat-card"><div class="stat-number" id="statTotal">0</div>div><div class="stat-label">Total Tasks</div>div></div>div>
+              <div class="stat-card"><div class="stat-number" id="statHigh">0</div>div><div class="stat-label">High Priority</div>div></div>div>
+              <div class="stat-card"><div class="stat-number" id="statActive">0</div>div><div class="stat-label">Active</div>div></div>div>
+              <div class="stat-card"><div class="stat-number" id="statDone">0</div>div><div class="stat-label">Completed</div>div></div>div>
+        </div>div>
+        <div class="controls">
+              <div class="filter-group">
+                      <select id="filterStatus" onchange="renderTasks()"><option value="">All Status</option>option><option value="Active">Active</option>option><option value="Completed">Completed</option>option><option value="On Hold">On Hold</option>option></select>select>
+                      <select id="filterPriority" onchange="renderTasks()"><option value="">All Priority</option>option><option value="High">High</option>option><option value="Medium">Medium</option>option><option value="Low">Low</option>option></select>select>
+                      <select id="filterCategory" onchange="renderTasks()"><option value="">All Categories</option>option><option value="Sales">Sales</option>option><option value="Operations">Operations</option>option><option value="Production">Production</option>option><option value="Finance">Finance</option>option><option value="HR">HR</option>option></select>select>
+              </div>div>
+              <button class="add-task-btn" onclick="openAddModal()">+ Add Task</button>button>
+        </div>div>
+        <div class="tasks-grid" id="tasksGrid"></div>div>
+    </div>div>
+  </div>div>
+  
+  <!-- Add Task Modal -->
+  <div class="modal-overlay" id="addModal">
+    <div class="modal">
+        <h3>Add New Task</h3>
+        <div class="form-group"><label>Title *</label><input type="text" id="newTitle" placeholder="Task title"></div>div>
+        <div class="form-group"><label>Description</label><textarea id="newDesc" placeholder="Brief description"></textarea></div>div>
+        <div class="form-group"><label>Priority</label><select id="newPriority"><option value="Medium">Medium</option>option><option value="High">High</option>option><option value="Low">Low</option>option></select>select></div>div>
+        <div class="form-group"><label>Category</label><select id="newCategory"><option value="Operations">Operations</option>option><option value="Sales">Sales</option>option><option value="Production">Production</option>option><option value="Finance">Finance</option>option><option value="HR">HR</option>option><option value="Administrative">Administrative</option>option></select>select></div>div>
+        <div class="form-group"><label>Due Date</label><input type="date" id="newDueDate"></div>div>
+        <div class="modal-actions">
+              <button class="btn-cancel" onclick="closeModal()">Cancel</button>button>
+              <button class="btn-save" onclick="saveTask()">Save Task</button>button>
+        </div>div>
+    </div>div>
+  </div>div>
+  
+  <script>
+      let token = localStorage.getItem('odb_token');
+      let currentUser = JSON.parse(localStorage.getItem('odb_user') || 'null');
+      let allTasks = [];
 
-                      <div class="form-group">
-                          <label for="password">Password</label>
-                          <input type="password" id="password" placeholder="Enter password" required>
-                      </div>
+      function sanitize(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
 
-                      <button onclick="login()">Login Securely</button>
+      async function doLogin() {
+            const email = document.getElementById('emailInput').value.trim();
+            const password = document.getElementById('passwordInput').value;
+            const errEl = document.getElementById('loginError');
+            errEl.style.display = 'none';
+            if (!email || !password) { errEl.textContent = 'Please enter your email and password.'; errEl.style.display = 'block'; return; }
+            try {
+                    const res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: email, password}) });
+                    const data = await res.json();
+                    if (!res.ok) { errEl.textContent = data.error || 'Login failed.'; errEl.style.display = 'block'; return; }
+                    token = data.token;
+                    currentUser = data.user;
+                    localStorage.setItem('odb_token', token);
+                    localStorage.setItem('odb_user', JSON.stringify(currentUser));
+                    showDashboard();
+            } catch(e) { errEl.textContent = 'Connection error. Please try again.'; errEl.style.display = 'block'; }
+      }
 
-                      <div class="users-list">
-                          <h3>📋 Demo Users (Password: SecureAdminPass123!)</h3>
-                <p>
-                    • Erik (Admin)<br>
-                              • John (Sales)<br>
-                              • Jane (Operations)<br>
-                              • Mike (Production)<br>
-                              • Sarah (Finance)
-                          </p>
-                      </div>
-                  </div>
+      document.addEventListener('keydown', e => { if (e.key === 'Enter' && document.getElementById('loginPage').style.display !== 'none') doLogin(); });
 
-                  <div id="taskContainer">
-                      <h1>📋 Task Manager Dashboard</h1>
-            <div id="userInfo" style="background: #e8f5e9; padding: 15px; border-radius: 5px; margin-bottom: 20px;"></div>
-            <div id="tasksList" style="margin-top: 20px;"></div>
-                      <button class="logout-btn" onclick="logout()">Logout</button>
-                  </div>
-              </div>
+      function doLogout() {
+            localStorage.removeItem('odb_token');
+            localStorage.removeItem('odb_user');
+            token = null; currentUser = null; allTasks = [];
+            document.getElementById('dashboard').style.display = 'none';
+            document.getElementById('loginPage').style.display = 'flex';
+      }
 
-              <script>
-                  async function login() {
-                      const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const errorDiv = document.getElementById('errorMsg');
-            const successDiv = document.getElementById('successMsg');
+      async function showDashboard() {
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+            const name = currentUser ? sanitize(currentUser.firstName + ' ' + currentUser.lastName) : '';
+            const dept = currentUser ? sanitize(currentUser.department) : '';
+            document.getElementById('userBadge').textContent = name + ' (' + dept + ')';
+            await loadTasks();
+      }
 
-            errorDiv.style.display = 'none';
-            successDiv.style.display = 'none';
+      async function loadTasks() {
+            try {
+                    const res = await fetch('/api/tasks', { headers: {'Authorization': 'Bearer ' + token} });
+                    if (res.status === 401) { doLogout(); return; }
+                    allTasks = await res.json();
+                    renderTasks();
+            } catch(e) { console.error('Failed to load tasks', e); }
+      }
 
-            if (!username || !password) {
-                errorDiv.textContent = 'Please enter both username and password';
-                errorDiv.style.display = 'block';
-                return;
+      function renderTasks() {
+            const statusF = document.getElementById('filterStatus').value;
+            const priorityF = document.getElementById('filterPriority').value;
+            const categoryF = document.getElementById('filterCategory').value;
+            let tasks = allTasks.filter(t => {
+                    if (statusF && t.status !== statusF) return false;
+                    if (priorityF && t.priority !== priorityF) return false;
+                    if (categoryF && t.category !== categoryF) return false;
+                    return true;
+            });
+            const grid = document.getElementById('tasksGrid');
+            document.getElementById('statTotal').textContent = allTasks.length;
+            document.getElementById('statHigh').textContent = allTasks.filter(t => t.priority === 'High').length;
+            document.getElementById('statActive').textContent = allTasks.filter(t => t.status === 'Active').length;
+            document.getElementById('statDone').textContent = allTasks.filter(t => t.status === 'Completed').length;
+            if (tasks.length === 0) {
+                    grid.innerHTML = '<div class="empty-state"><h3>No tasks found</h3><p>Try adjusting your filters or add a new task.</p></div>';
+                    return;
             }
+            grid.innerHTML = tasks.map(t => `
+                  <div class="task-card priority-${sanitize(t.priority)}">
+                          <div class="task-header">
+                                    <div class="task-title">${sanitize(t.title)}</div>
+                                              <div class="task-badges">
+                                                          <span class="badge badge-${sanitize(t.priority).toLowerCase()}">${sanitize(t.priority)}</span>
+                                                                      <span class="badge badge-category">${sanitize(t.category)}</span>
+                                                                                </div>
+                                                                                        </div>
+                                                                                                ${t.description ? `<div class="task-desc">${sanitize(t.description)}</div>` : ''}
+                                                                                                        <div class="task-meta">
+                                                                                                                  ${t.dueDate ? `<span>Due: ${sanitize(t.dueDate)}</span>` : ''}
+                                                                                                                            <span>Status: ${sanitize(t.status)}</span>
+                                                                                                                                      ${t.assignedTo ? `<span>Assigned: ${sanitize(t.assignedTo)}</span>` : ''}
+                                                                                                                                                <span>Dept: ${sanitize(t.department || '')}</span>
+                                                                                                                                                        </div>
+                                                                                                                                                                <div class="task-actions">
+                                                                                                                                                                          ${t.status !== 'Completed' ? `<button class="btn-complete" onclick="markComplete(${t.id})">Mark Complete</button>` : ''}
+                                                                                                                                                                                    ${currentUser && currentUser.role === 'admin' ? `<button class="btn-delete" onclick="deleteTask(${t.id})">Delete</button>` : ''}
+                                                                                                                                                                                            </div>
+                                                                                                                                                                                                  </div>
+                                                                                                                                                                                                      `).join('');
+      }
 
+      function openAddModal() { document.getElementById('addModal').classList.add('active'); }
+      function closeModal() { document.getElementById('addModal').classList.remove('active'); }
+
+      async function saveTask() {
+            const title = document.getElementById('newTitle').value.trim();
+            if (!title) { alert('Please enter a task title.'); return; }
+            const task = {
+                    title,
+                    description: document.getElementById('newDesc').value.trim(),
+                    priority: document.getElementById('newPriority').value,
+                    category: document.getElementById('newCategory').value,
+                    dueDate: document.getElementById('newDueDate').value,
+                    department: currentUser ? currentUser.department : 'Operations',
+                    assignedTo: currentUser ? currentUser.email : ''
+            };
             try {
-                const response = await fetch('/api/login', {
-                                      method: 'POST',
-                                      headers: {'Content-Type': 'application/json'},
-                                      body: JSON.stringify({username, password})
-                  });
+                    const res = await fetch('/api/tasks', { method: 'POST', headers: {'Content-Type':'application/json','Authorization':'Bearer '+token}, body: JSON.stringify(task) });
+                    if (res.status === 401) { doLogout(); return; }
+                    if (!res.ok) { const d = await res.json(); alert('Error: ' + (d.error || 'Failed to save')); return; }
+                    closeModal();
+                    document.getElementById('newTitle').value = '';
+                    document.getElementById('newDesc').value = '';
+                    document.getElementById('newDueDate').value = '';
+                    await loadTasks();
+            } catch(e) { alert('Connection error'); }
+      }
 
-                const data = await response.json();
-
-                if (response.ok) {
-                    localStorage.setItem('jwt_token', data.token);
-                    localStorage.setItem('username', data.username);
-                    localStorage.setItem('department', data.department || 'N/A');
-                    successDiv.textContent = `✅ Welcome ${username}!`;
-                    successDiv.style.display = 'block';
-                    setTimeout(() => { showDashboard(); }, 800);
-} else {
-                    errorDiv.textContent = data.error || 'Login failed';
-                    errorDiv.style.display = 'block';
-}
-} catch (err) {
-                errorDiv.textContent = 'Connection error: ' + err.message;
-                errorDiv.style.display = 'block';
-}
-}
-
-        async function loadTasks() {
-            const token = localStorage.getItem('jwt_token');
+      async function markComplete(id) {
+            const task = allTasks.find(t => t.id === id);
+            if (!task) return;
             try {
-                const response = await fetch('/api/tasks', {
-                    headers: {'Authorization': `Bearer ${token}`}
-});
-                const tasks = await response.json();
-                const container = document.getElementById('tasksList');
-                container.innerHTML = '<h3>Tasks (' + tasks.length + ')</h3>';
-                tasks.forEach(task => {
-                    container.innerHTML += `
-                        <div class="task-item">
-                            <div class="task-title">${escapeHtml(task.title)}</div>
-                            <div class="task-meta">
-                                📅 ${task.dueDate} | 🏷️ ${task.category} | ⚡ ${task.priority}
-                                <br>👤 ${task.assignedTo} | ✓ ${task.completed ? 'Completed' : 'Pending'}
-                            </div>
-                        </div>
-                    `;
-});
-} catch (err) {
-                document.getElementById('tasksList').innerHTML = '<p style="color: #d32f2f;">Error loading tasks</p>';
-}
-}
+                    const res = await fetch('/api/tasks/' + id, { method: 'PUT', headers: {'Content-Type':'application/json','Authorization':'Bearer '+token}, body: JSON.stringify({...task, status: 'Completed'}) });
+                    if (res.status === 401) { doLogout(); return; }
+                    await loadTasks();
+            } catch(e) { alert('Connection error'); }
+      }
 
-        function showDashboard() {
-            document.getElementById('loginForm').style.display = 'none';
-            document.getElementById('taskContainer').style.display = 'block';
-            const username = localStorage.getItem('username');
-            const department = localStorage.getItem('department');
-            document.getElementById('userInfo').innerHTML = `✅ Logged in as: <strong>${username}</strong> (${department})`;
-            loadTasks();
-}
+      async function deleteTask(id) {
+            if (!confirm('Delete this task? This cannot be undone.')) return;
+            try {
+                    const res = await fetch('/api/tasks/' + id, { method: 'DELETE', headers: {'Authorization':'Bearer '+token} });
+                    if (res.status === 401) { doLogout(); return; }
+                    await loadTasks();
+            } catch(e) { alert('Connection error'); }
+      }
 
-        function logout() {
-            localStorage.removeItem('jwt_token');
-            localStorage.removeItem('username');
-            localStorage.removeItem('department');
-            location.reload();
-}
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-}
-
-        if (localStorage.getItem('jwt_token')) {
+      // Auto-login if token exists
+      if (token && currentUser) {
             showDashboard();
-}
-    </script>
-</body>
-</html>
+      }
+        </script>
+  </body>
+</html>html>
+  
