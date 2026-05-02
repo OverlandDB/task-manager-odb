@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Task Manager - Secure Login</title>
+      <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .container { max-width: 400px; width: 100%; }
+        .login-box { background: white; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); padding: 40px; }
+        h1 { text-align: center; color: #333; margin-bottom: 30px; font-size: 28px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: 500; }
+        input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 16px; transition: border-color 0.3s; }
+        input:focus { outline: none; border-color: #667eea; }
+        button { width: 100%; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s; }
+        button:hover { transform: translateY(-2px); }
+        button:active { transform: translateY(0); }
+        .error { color: #d32f2f; background: #ffebee; padding: 12px; border-radius: 5px; margin-bottom: 20px; display: none; }
+                .success { color: #388e3c; background: #e8f5e9; padding: 12px; border-radius: 5px; margin-bottom: 20px; display: none; }
+                .users-list { background: #f5f5f5; padding: 20px; border-radius: 5px; margin-top: 30px; }
+                          .users-list h3 { font-size: 14px; color: #666; margin-bottom: 10px; }
+        .users-list p { font-size: 13px; color: #999; line-height: 1.6; }
+                  #taskContainer { display: none; background: white; border-radius: 10px; padding: 30px; margin-top: 20px; }
+        .task-item { background: #f5f5f5; padding: 15px; margin-bottom: 10px; border-radius: 5px; border-left: 4px solid #667eea; }
+                  .task-title { font-weight: 600; color: #333; }
+        .task-meta { font-size: 13px; color: #999; margin-top: 8px; }
+        .logout-btn { background: #d32f2f; margin-top: 20px; }
+                  .logout-btn:hover { background: #b71c1c; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <div class="login-box" id="loginForm">
+                      <h1>🔐 Task Manager</h1>
+                      <div class="error" id="errorMsg"></div>
+                      <div class="success" id="successMsg"></div>
+
+                      <div class="form-group">
+                          <label for="username">Username</label>
+                          <input type="text" id="username" placeholder="e.g., Erik, John, Jane, Mike, Sarah" required>
+                      </div>
+
+                      <div class="form-group">
+                          <label for="password">Password</label>
+                          <input type="password" id="password" placeholder="Enter password" required>
+                      </div>
+
+                      <button onclick="login()">Login Securely</button>
+
+                      <div class="users-list">
+                          <h3>📋 Demo Users (Password: SecureAdminPass123!)</h3>
+                <p>
+                    • Erik (Admin)<br>
+                              • John (Sales)<br>
+                              • Jane (Operations)<br>
+                              • Mike (Production)<br>
+                              • Sarah (Finance)
+                          </p>
+                      </div>
+                  </div>
+
+                  <div id="taskContainer">
+                      <h1>📋 Task Manager Dashboard</h1>
+            <div id="userInfo" style="background: #e8f5e9; padding: 15px; border-radius: 5px; margin-bottom: 20px;"></div>
+            <div id="tasksList" style="margin-top: 20px;"></div>
+                      <button class="logout-btn" onclick="logout()">Logout</button>
+                  </div>
+              </div>
+
+              <script>
+                  async function login() {
+                      const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMsg');
+            const successDiv = document.getElementById('successMsg');
+
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+
+            if (!username || !password) {
+                errorDiv.textContent = 'Please enter both username and password';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/login', {
+                                      method: 'POST',
+                                      headers: {'Content-Type': 'application/json'},
+                                      body: JSON.stringify({username, password})
+                  });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem('jwt_token', data.token);
+                    localStorage.setItem('username', data.username);
+                    localStorage.setItem('department', data.department || 'N/A');
+                    successDiv.textContent = `✅ Welcome ${username}!`;
+                    successDiv.style.display = 'block';
+                    setTimeout(() => { showDashboard(); }, 800);
+} else {
+                    errorDiv.textContent = data.error || 'Login failed';
+                    errorDiv.style.display = 'block';
+}
+} catch (err) {
+                errorDiv.textContent = 'Connection error: ' + err.message;
+                errorDiv.style.display = 'block';
+}
+}
+
+        async function loadTasks() {
+            const token = localStorage.getItem('jwt_token');
+            try {
+                const response = await fetch('/api/tasks', {
+                    headers: {'Authorization': `Bearer ${token}`}
+});
+                const tasks = await response.json();
+                const container = document.getElementById('tasksList');
+                container.innerHTML = '<h3>Tasks (' + tasks.length + ')</h3>';
+                tasks.forEach(task => {
+                    container.innerHTML += `
+                        <div class="task-item">
+                            <div class="task-title">${escapeHtml(task.title)}</div>
+                            <div class="task-meta">
+                                📅 ${task.dueDate} | 🏷️ ${task.category} | ⚡ ${task.priority}
+                                <br>👤 ${task.assignedTo} | ✓ ${task.completed ? 'Completed' : 'Pending'}
+                            </div>
+                        </div>
+                    `;
+});
+} catch (err) {
+                document.getElementById('tasksList').innerHTML = '<p style="color: #d32f2f;">Error loading tasks</p>';
+}
+}
+
+        function showDashboard() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('taskContainer').style.display = 'block';
+            const username = localStorage.getItem('username');
+            const department = localStorage.getItem('department');
+            document.getElementById('userInfo').innerHTML = `✅ Logged in as: <strong>${username}</strong> (${department})`;
+            loadTasks();
+}
+
+        function logout() {
+            localStorage.removeItem('jwt_token');
+            localStorage.removeItem('username');
+            localStorage.removeItem('department');
+            location.reload();
+}
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+}
+
+        if (localStorage.getItem('jwt_token')) {
+            showDashboard();
+}
+    </script>
+</body>
+</html>
