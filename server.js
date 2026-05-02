@@ -65,6 +65,11 @@ function validateInput(data, schema) {
 }
 
 // SECURITY: JWT-like token generation (using crypto)
+// If JWT_SECRET is not set, generate one per process. NOTE: this invalidates all
+// sessions on every restart, so set JWT_SECRET in the Render environment for stable sessions.
+if (!process.env.JWT_SECRET) {
+  console.warn('[WARN] JWT_SECRET not set — generating ephemeral secret. All tokens will be invalidated on restart.');
+}
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const TOKEN_EXPIRY = 3600000; // 1 hour
 
@@ -132,9 +137,21 @@ app.use((req, res, next) => {
         next();
 });
 
-// Database setup
-const db = new sqlite3.Database(':memory:');
+// Database setup — file-based for persistence across restarts.
+// Render free tier: /tmp survives process restarts but NOT redeploys.
+// For full durability across redeploys, set DB_PATH to a Render persistent disk mount.
+const DB_PATH = process.env.DB_PATH || '/tmp/tasks.db';
+const db = new sqlite3.Database(DB_PATH, (err) => {
+  if (err) {
+    console.error('[FATAL] Failed to open database at', DB_PATH, err);
+    process.exit(1);
+  }
+  console.log('Database opened at', DB_PATH);
+});
 
+if (!process.env.ADMIN_PASSWORD) {
+  console.warn('[WARN] ADMIN_PASSWORD not set — falling back to hardcoded default. Set ADMIN_PASSWORD in the Render environment.');
+}
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'ODB-TaskMgr-2026!';
 
 // Active employees from Overland Design-Build
@@ -170,8 +187,8 @@ db.serialize(() => {
                                        timestamp TEXT DEFAULT CURRENT_TIMESTAMP
                                          )`);
 
-               // Seed 18 core tasks
-               const tasks = [
+               // Seed 18 core tasks — only when the table is empty (so persistent DB isn't duplicated on restart)
+               const seedTasks = [
                      { title: 'Follow up with Apex Construction re: proposal', description: 'Send follow-up email regarding the submitted proposal', priority: 'High', category: 'Sales', status: 'Active', dueDate: '2026-05-10', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
                      { title: 'Close out Denver Tech Center project', description: 'Complete final walkthrough and close project files', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-08', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
                      { title: 'Schedule crew for Arvada residential job', description: 'Coordinate scheduling for the upcoming residential project', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-07', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
@@ -192,11 +209,16 @@ db.serialize(() => {
                      { title: 'Inspect completed work at Wheat Ridge site', description: 'Final quality inspection before project closeout', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-09', assignedTo: 'randy.b@overlanddesignbuild.com', department: 'Production' }
                        ];
 
-               const stmt = db.prepare(`INSERT INTO tasks (title, description, priority, category, status, dueDate, assignedTo, department) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-        tasks.forEach(task => {
-                  stmt.run(task.title, task.description, task.priority, task.category, task.status, task.dueDate, task.assignedTo, task.department);
-        });
-        stmt.finalize();
+               db.get('SELECT COUNT(*) AS n FROM tasks', (err, row) => {
+                  if (err) { console.error('Seed check failed:', err); return; }
+                  if (row.n > 0) { console.log('Tasks table already populated (' + row.n + ' rows) — skipping seed.'); return; }
+                  console.log('Seeding ' + seedTasks.length + ' starter tasks.');
+                  const stmt = db.prepare('INSERT INTO tasks (title, description, priority, category, status, dueDate, assignedTo, department) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                  seedTasks.forEach(task => {
+                    stmt.run(task.title, task.description, task.priority, task.category, task.status, task.dueDate, task.assignedTo, task.department);
+                  });
+                  stmt.finalize();
+               });
 });
 
 // Auth endpoint
@@ -220,10 +242,13 @@ app.post('/api/login', (req, res) => {
                      return res.status(401).json({error: 'Invalid credentials'});
            }
 
-           const expectedPassword = ADMIN_PASSWORD;
-        if (password !== expectedPassword) {
-                  return res.status(401).json({error: 'Invalid credentials'});
-        }
+           // Timing-safe comparison to avoid leaking password length / prefix matches
+           const provided = Buffer.from(String(password));
+           const expected = Buffer.from(ADMIN_PASSWORD);
+           const passwordOk = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+           if (!passwordOk) {
+                     return res.status(401).json({error: 'Invalid credentials'});
+           }
 
            const token = generateToken(user);
         res.json({
@@ -374,7 +399,12 @@ app.get('/api/health', (req, res) => {
         res.json({status: 'ok', timestamp: new Date().toISOString()});
 });
 
-// Serve React app
+// Unknown API routes -> JSON 404 (don't fall through to the SPA shell)
+app.all('/api/*', (req, res) => {
+        res.status(404).json({error: 'Not found'});
+});
+
+// SPA fallback
 app.get('*', (req, res) => {
         res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
