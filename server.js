@@ -1,1 +1,98 @@
-const express = require('express');\nconst path = require('path');\nconst app = express();\n\napp.use(express.json());\napp.use(express.static('public'));\n\nconst users = [\n  {id:1, name:'Erik Carver', email:'erik@odb.com', role:'admin', department:'Admin'},\n  {id:2, name:'John Sales', email:'john@odb.com', role:'user', department:'Sales'},\n  {id:3, name:'Jane Ops', email:'jane@odb.com', role:'user', department:'Operations'},\n  {id:4, name:'Mike Prod', email:'mike@odb.com', role:'user', department:'Production'},\n  {id:5, name:'Sarah Finance', email:'sarah@odb.com', role:'user', department:'Finance/Admin'}\n];\n\nlet tasks = [\n  {id:1, title:'Onboard new sales rep', category:'Sales', priority:'high', dueDate:'2025-05-15', status:'pending', owner:'John Sales'},\n  {id:2, title:'Follow up on leads', category:'Sales', priority:'high', dueDate:'2025-05-10', status:'in-progress', owner:'John Sales'},\n  {id:3, title:'Generate sales report', category:'Sales', priority:'medium', dueDate:'2025-05-20', status:'pending', owner:'John Sales'},\n  {id:4, title:'Process invoice batch', category:'Invoicing', priority:'high', dueDate:'2025-05-05', status:'in-progress', owner:'Erik Carver'},\n  {id:5, title:'Reconcile accounts', category:'Invoicing', priority:'high', dueDate:'2025-05-08', status:'pending', owner:'Erik Carver'},\n  {id:6, title:'Send payment reminders', category:'Invoicing', priority:'medium', dueDate:'2025-05-12', status:'pending', owner:'Erik Carver'},\n  {id:7, title:'Review payroll', category:'Invoicing', priority:'high', dueDate:'2025-05-06', status:'pending', owner:'Sarah Finance'},\n  {id:8, title:'File tax documents', category:'Invoicing', priority:'medium', dueDate:'2025-05-30', status:'pending', owner:'Sarah Finance'},\n  {id:9, title:'Hire new team member', category:'HR', priority:'high', dueDate:'2025-05-20', status:'pending', owner:'Erik Carver'},\n  {id:10, title:'Conduct team review', category:'HR', priority:'medium', dueDate:'2025-05-15', status:'pending', owner:'Erik Carver'},\n  {id:11, title:'Schedule safety meeting', category:'Operations', priority:'medium', dueDate:'2025-05-10', status:'pending', owner:'Jane Ops'},\n  {id:12, title:'Inventory check', category:'Operations', priority:'high', dueDate:'2025-05-07', status:'in-progress', owner:'Jane Ops'},\n  {id:13, title:'Follow up on project', category:'Post-Sale', priority:'high', dueDate:'2025-05-12', status:'pending', owner:'Mike Prod'},\n  {id:14, title:'Schedule warranty check', category:'Post-Sale', priority:'medium', dueDate:'2025-05-25', status:'pending', owner:'Mike Prod'},\n  {id:15, title:'Update project timeline', category:'Admin', priority:'medium', dueDate:'2025-05-10', status:'pending', owner:'Erik Carver'},\n  {id:16, title:'Plan Q3 strategy', category:'Personal', priority:'high', dueDate:'2025-05-15', status:'pending', owner:'Erik Carver'},\n  {id:17, title:'Review budget', category:'Personal', priority:'medium', dueDate:'2025-05-20', status:'pending', owner:'Erik Carver'},\n  {id:18, title:'Team standup meeting', category:'Operations', priority:'low', dueDate:'2025-05-09', status:'completed', owner:'Jane Ops'}\n];\n\napp.get('/api/auth/user', (req, res) => {\n  const user = users[0];\n  res.json(user);\n});\n\napp.get('/api/users', (req, res) => {\n  res.json(users);\n});\n\napp.get('/api/tasks', (req, res) => {\n  res.json(tasks);\n});\n\napp.post('/api/tasks', (req, res) => {\n  const {title, category, priority, dueDate, owner} = req.body;\n  const newTask = {\n    id: Math.max(...tasks.map(t => t.id), 0) + 1,\n    title,\n    category,\n    priority,\n    dueDate,\n    status: 'pending',\n    owner\n  };\n  tasks.push(newTask);\n  res.json(newTask);\n});\n\napp.put('/api/tasks/:id', (req, res) => {\n  const task = tasks.find(t => t.id === parseInt(req.params.id));\n  if (!task) return res.status(404).json({error: 'Task not found'});\n  Object.assign(task, req.body);\n  res.json(task);\n});\n\napp.delete('/api/tasks/:id', (req, res) => {\n  const index = tasks.findIndex(t => t.id === parseInt(req.params.id));\n  if (index === -1) return res.status(404).json({error: 'Task not found'});\n  tasks.splice(index, 1);\n  res.json({success: true});\n});\n\napp.get('/', (req, res) => {\n  res.sendFile(path.join(__dirname, 'public', 'index.html'));\n});\n\nconst PORT = process.env.PORT || 3000;\napp.listen(PORT, () => {\n  console.log(`Task Manager server running on http://localhost:${PORT}`);\n});", "tabId": 545803410
+const express = require('express');
+const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Initialize database
+const db = new sqlite3.Database(':memory:');
+
+// Create tables
+db.serialize(() => {
+    db.run('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, department TEXT)');
+    db.run('CREATE TABLE tasks (id INTEGER PRIMARY KEY, title TEXT, description TEXT, dueDate TEXT, category TEXT, priority TEXT, completed INTEGER DEFAULT 0, assignedTo TEXT)');
+
+               // Insert pre-configured users
+               db.run('INSERT INTO users VALUES (1, "Erik", "Admin")');
+    db.run('INSERT INTO users VALUES (2, "John", "Sales")');
+    db.run('INSERT INTO users VALUES (3, "Jane", "Operations")');
+    db.run('INSERT INTO users VALUES (4, "Mike", "Production")');
+    db.run('INSERT INTO users VALUES (5, "Sarah", "Finance")');
+
+               // Insert 18 pre-loaded tasks
+               const tasks = [
+                     ['Website Redesign', 'Complete overhaul of website', '2026-06-30', 'Product', 'High', 0, 'Erik'],
+                     ['Q2 Sales Report', 'Compile quarterly sales data', '2026-05-31', 'Sales', 'Medium', 0, 'John'],
+                     ['HR Onboarding', 'Setup for new employees', '2026-05-15', 'HR', 'High', 0, 'Jane'],
+                     ['Inventory Audit', 'Count warehouse stock', '2026-05-30', 'Operations', 'Medium', 0, 'Mike'],
+                     ['Team Budget Review', 'Review Q2 spending', '2026-05-20', 'Finance', 'High', 0, 'Sarah'],
+                     ['Client Meeting', 'Prepare presentation', '2026-05-10', 'Sales', 'High', 0, 'John'],
+                     ['Server Maintenance', 'Schedule downtime', '2026-05-25', 'IT', 'Medium', 0, 'Mike'],
+                     ['Marketing Campaign', 'Launch new ads', '2026-06-01', 'Marketing', 'High', 0, 'Erik'],
+                     ['Invoice Processing', 'Process vendor invoices', '2026-05-22', 'Finance', 'Medium', 0, 'Sarah'],
+                     ['Training Session', 'Conduct team training', '2026-05-18', 'HR', 'Medium', 0, 'Jane'],
+                     ['Customer Follow-up', 'Call outstanding clients', '2026-05-12', 'Sales', 'High', 0, 'John'],
+                     ['System Update', 'Deploy latest patches', '2026-05-28', 'IT', 'High', 0, 'Mike'],
+                     ['Report Writing', 'Prepare monthly report', '2026-05-25', 'Admin', 'Medium', 0, 'Erik'],
+                     ['Supplier Negotiation', 'Discuss contract terms', '2026-06-05', 'Operations', 'Medium', 0, 'Mike'],
+                     ['Email Campaign', 'Send monthly newsletter', '2026-05-20', 'Marketing', 'Low', 0, 'Erik'],
+                     ['Project Planning', 'Outline Q3 initiatives', '2026-06-15', 'Product', 'High', 0, 'Erik'],
+                     ['Data Backup', 'Backup database', '2026-05-23', 'IT', 'High', 0, 'Mike'],
+                     ['Review Resumes', 'Screen job applicants', '2026-05-17', 'HR', 'Medium', 0, 'Jane']
+                   ];
+
+               tasks.forEach(task => {
+                     db.run('INSERT INTO tasks (title, description, dueDate, category, priority, completed, assignedTo) VALUES (?,?,?,?,?,?,?)', task);
+               });
+});
+
+// API Routes
+app.get('/api/tasks', (req, res) => {
+    db.all('SELECT * FROM tasks', (err, rows) => {
+          if (err) return res.status(500).json({error: err.message});
+          res.json(rows);
+    });
+});
+
+app.post('/api/tasks', (req, res) => {
+    const {title, description, dueDate, category, priority, assignedTo} = req.body;
+    db.run('INSERT INTO tasks (title, description, dueDate, category, priority, assignedTo) VALUES (?,?,?,?,?,?)',
+               [title, description, dueDate, category, priority, assignedTo],
+               function(err) {
+                       if (err) return res.status(500).json({error: err.message});
+                       res.json({id: this.lastID, ...req.body});
+               });
+});
+
+app.put('/api/tasks/:id', (req, res) => {
+    const {title, description, dueDate, category, priority, completed, assignedTo} = req.body;
+    db.run('UPDATE tasks SET title=?, description=?, dueDate=?, category=?, priority=?, completed=?, assignedTo=? WHERE id=?',
+               [title, description, dueDate, category, priority, completed, assignedTo, req.params.id],
+               (err) => {
+                       if (err) return res.status(500).json({error: err.message});
+                       res.json({id: req.params.id, ...req.body});
+               });
+});
+
+app.delete('/api/tasks/:id', (req, res) => {
+    db.run('DELETE FROM tasks WHERE id=?', req.params.id, (err) => {
+          if (err) return res.status(500).json({error: err.message});
+          res.json({success: true});
+    });
+});
+
+app.get('/api/users', (req, res) => {
+    db.all('SELECT * FROM users', (err, rows) => {
+          if (err) return res.status(500).json({error: err.message});
+          res.json(rows);
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Task Manager server running on http://localhost:${PORT}`);
+});
