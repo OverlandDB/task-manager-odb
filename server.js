@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const cors = require('cors');
 const crypto = require('crypto');
 
@@ -137,16 +137,27 @@ app.use((req, res, next) => {
         next();
 });
 
-// Database setup — file-based for persistence across restarts.
-// Render free tier: /tmp survives process restarts but NOT redeploys.
-// For full durability across redeploys, set DB_PATH to a Render persistent disk mount.
-const DB_PATH = process.env.DB_PATH || '/tmp/tasks.db';
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('[FATAL] Failed to open database at', DB_PATH, err);
-    process.exit(1);
+// Database setup — Render-managed PostgreSQL.
+// Render external connections require SSL; internal hostnames (single-label, no dots
+// like "dpg-xxxxx-a") don't. Detect and configure accordingly.
+function getSslConfig() {
+  if (!process.env.DATABASE_URL) return false;
+  try {
+    const url = new URL(process.env.DATABASE_URL);
+    const isInternal = !url.hostname.includes('.');
+    return isInternal ? false : { rejectUnauthorized: false };
+  } catch {
+    return { rejectUnauthorized: false };
   }
-  console.log('Database opened at', DB_PATH);
+}
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: getSslConfig()
+});
+
+pool.on('error', (err) => {
+  console.error('[FATAL] Unexpected database pool error', err);
 });
 
 if (!process.env.ADMIN_PASSWORD) {
@@ -162,64 +173,65 @@ const users = [
       { id: 4, username: 'nate.r@overlanddesignbuild.com', email: 'nate.r@overlanddesignbuild.com', firstName: 'Nathan', lastName: 'Runolfson', department: 'Production', role: 'member', jobTitle: 'Shop Foreman' }
       ];
 
-db.serialize(() => {
-        // Create tables
-               db.run(`CREATE TABLE IF NOT EXISTS tasks (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                       title TEXT NOT NULL,
-                           description TEXT,
-                               priority TEXT DEFAULT 'Medium',
-                                   category TEXT DEFAULT 'Operations',
-                                       status TEXT DEFAULT 'Active',
-                                           dueDate TEXT,
-                                               assignedTo TEXT,
-                                                   department TEXT,
-                                                       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
-                                                           updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
-                                                             )`);
+async function initDb() {
+        await pool.query(`CREATE TABLE IF NOT EXISTS tasks (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority TEXT DEFAULT 'Medium',
+                category TEXT DEFAULT 'Operations',
+                status TEXT DEFAULT 'Active',
+                "dueDate" TEXT,
+                "assignedTo" TEXT,
+                department TEXT,
+                "createdAt" TIMESTAMPTZ DEFAULT NOW(),
+                "updatedAt" TIMESTAMPTZ DEFAULT NOW()
+        )`);
 
-               db.run(`CREATE TABLE IF NOT EXISTS audit_log (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                       username TEXT NOT NULL,
-                           action TEXT NOT NULL,
-                               taskId INTEGER,
-                                   taskTitle TEXT,
-                                       timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-                                         )`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS audit_log (
+                id SERIAL PRIMARY KEY,
+                username TEXT NOT NULL,
+                action TEXT NOT NULL,
+                "taskId" INTEGER,
+                "taskTitle" TEXT,
+                timestamp TIMESTAMPTZ DEFAULT NOW()
+        )`);
 
-               // Seed 18 core tasks — only when the table is empty (so persistent DB isn't duplicated on restart)
-               const seedTasks = [
-                     { title: 'Follow up with Apex Construction re: proposal', description: 'Send follow-up email regarding the submitted proposal', priority: 'High', category: 'Sales', status: 'Active', dueDate: '2026-05-10', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
-                     { title: 'Close out Denver Tech Center project', description: 'Complete final walkthrough and close project files', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-08', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
-                     { title: 'Schedule crew for Arvada residential job', description: 'Coordinate scheduling for the upcoming residential project', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-07', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
-                     { title: 'Send invoice to Mountain View Partners', description: 'Prepare and send final invoice for completed work', priority: 'High', category: 'Finance', status: 'Active', dueDate: '2026-05-06', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
-                     { title: 'Review and approve subcontractor bids', description: 'Review incoming bids and select best fit subcontractors', priority: 'Medium', category: 'Operations', status: 'Active', dueDate: '2026-05-12', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
-                     { title: 'Update project timeline for Boulder job', description: 'Revise project timeline based on material delivery changes', priority: 'Medium', category: 'Operations', status: 'Active', dueDate: '2026-05-09', assignedTo: 'nate.r@overlanddesignbuild.com', department: 'Production' },
-                     { title: 'Order materials for Golden residential project', description: 'Place material order for upcoming Golden job', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-07', assignedTo: 'nate.r@overlanddesignbuild.com', department: 'Production' },
-                     { title: 'Complete safety inspection checklist', description: 'Conduct and document safety inspection for active job sites', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-06', assignedTo: 'randy.b@overlanddesignbuild.com', department: 'Production' },
-                     { title: 'Prepare Q2 financial summary', description: 'Compile Q2 revenue, expenses, and project margins', priority: 'Medium', category: 'Finance', status: 'Active', dueDate: '2026-05-15', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
-                     { title: 'Submit permit application for Lakewood project', description: 'File necessary permits with Jefferson County', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-08', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
-                     { title: 'Client meeting - Thornton homeowner', description: 'Meet with Thornton homeowner to review project scope', priority: 'Medium', category: 'Sales', status: 'Active', dueDate: '2026-05-10', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
-                     { title: 'Update employee timesheets for payroll', description: 'Collect and verify timesheets before payroll deadline', priority: 'High', category: 'HR', status: 'Active', dueDate: '2026-05-09', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
-                     { title: 'Coordinate equipment delivery to Arvada site', description: 'Schedule and confirm equipment delivery logistics', priority: 'Medium', category: 'Operations', status: 'Active', dueDate: '2026-05-11', assignedTo: 'nate.r@overlanddesignbuild.com', department: 'Production' },
-                     { title: 'Review warranty claims from past projects', description: 'Assess and respond to open warranty claim requests', priority: 'Low', category: 'Operations', status: 'Active', dueDate: '2026-05-20', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
-                     { title: 'Create new client proposal - Jefferson County bid', description: 'Draft and finalize proposal for Jefferson County project bid', priority: 'High', category: 'Sales', status: 'Active', dueDate: '2026-05-13', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
-                     { title: 'Follow up on outstanding accounts receivable', description: 'Contact clients with overdue invoices', priority: 'High', category: 'Finance', status: 'Active', dueDate: '2026-05-07', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
-                     { title: 'Schedule team training on new equipment', description: 'Organize and schedule safety training for new equipment', priority: 'Medium', category: 'HR', status: 'Active', dueDate: '2026-05-18', assignedTo: 'nate.r@overlanddesignbuild.com', department: 'Production' },
-                     { title: 'Inspect completed work at Wheat Ridge site', description: 'Final quality inspection before project closeout', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-09', assignedTo: 'randy.b@overlanddesignbuild.com', department: 'Production' }
-                       ];
+        // Seed 18 core tasks — only when the table is empty (so the DB isn't duplicated on restart)
+        const seedTasks = [
+                { title: 'Follow up with Apex Construction re: proposal', description: 'Send follow-up email regarding the submitted proposal', priority: 'High', category: 'Sales', status: 'Active', dueDate: '2026-05-10', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
+                { title: 'Close out Denver Tech Center project', description: 'Complete final walkthrough and close project files', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-08', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
+                { title: 'Schedule crew for Arvada residential job', description: 'Coordinate scheduling for the upcoming residential project', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-07', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
+                { title: 'Send invoice to Mountain View Partners', description: 'Prepare and send final invoice for completed work', priority: 'High', category: 'Finance', status: 'Active', dueDate: '2026-05-06', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
+                { title: 'Review and approve subcontractor bids', description: 'Review incoming bids and select best fit subcontractors', priority: 'Medium', category: 'Operations', status: 'Active', dueDate: '2026-05-12', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
+                { title: 'Update project timeline for Boulder job', description: 'Revise project timeline based on material delivery changes', priority: 'Medium', category: 'Operations', status: 'Active', dueDate: '2026-05-09', assignedTo: 'nate.r@overlanddesignbuild.com', department: 'Production' },
+                { title: 'Order materials for Golden residential project', description: 'Place material order for upcoming Golden job', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-07', assignedTo: 'nate.r@overlanddesignbuild.com', department: 'Production' },
+                { title: 'Complete safety inspection checklist', description: 'Conduct and document safety inspection for active job sites', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-06', assignedTo: 'randy.b@overlanddesignbuild.com', department: 'Production' },
+                { title: 'Prepare Q2 financial summary', description: 'Compile Q2 revenue, expenses, and project margins', priority: 'Medium', category: 'Finance', status: 'Active', dueDate: '2026-05-15', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
+                { title: 'Submit permit application for Lakewood project', description: 'File necessary permits with Jefferson County', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-08', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
+                { title: 'Client meeting - Thornton homeowner', description: 'Meet with Thornton homeowner to review project scope', priority: 'Medium', category: 'Sales', status: 'Active', dueDate: '2026-05-10', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
+                { title: 'Update employee timesheets for payroll', description: 'Collect and verify timesheets before payroll deadline', priority: 'High', category: 'HR', status: 'Active', dueDate: '2026-05-09', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
+                { title: 'Coordinate equipment delivery to Arvada site', description: 'Schedule and confirm equipment delivery logistics', priority: 'Medium', category: 'Operations', status: 'Active', dueDate: '2026-05-11', assignedTo: 'nate.r@overlanddesignbuild.com', department: 'Production' },
+                { title: 'Review warranty claims from past projects', description: 'Assess and respond to open warranty claim requests', priority: 'Low', category: 'Operations', status: 'Active', dueDate: '2026-05-20', assignedTo: 'vince.e@overlanddesignbuild.com', department: 'Operations' },
+                { title: 'Create new client proposal - Jefferson County bid', description: 'Draft and finalize proposal for Jefferson County project bid', priority: 'High', category: 'Sales', status: 'Active', dueDate: '2026-05-13', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
+                { title: 'Follow up on outstanding accounts receivable', description: 'Contact clients with overdue invoices', priority: 'High', category: 'Finance', status: 'Active', dueDate: '2026-05-07', assignedTo: 'erik.carver@overlanddesignbuild.com', department: 'Administrative' },
+                { title: 'Schedule team training on new equipment', description: 'Organize and schedule safety training for new equipment', priority: 'Medium', category: 'HR', status: 'Active', dueDate: '2026-05-18', assignedTo: 'nate.r@overlanddesignbuild.com', department: 'Production' },
+                { title: 'Inspect completed work at Wheat Ridge site', description: 'Final quality inspection before project closeout', priority: 'High', category: 'Operations', status: 'Active', dueDate: '2026-05-09', assignedTo: 'randy.b@overlanddesignbuild.com', department: 'Production' }
+        ];
 
-               db.get('SELECT COUNT(*) AS n FROM tasks', (err, row) => {
-                  if (err) { console.error('Seed check failed:', err); return; }
-                  if (row.n > 0) { console.log('Tasks table already populated (' + row.n + ' rows) — skipping seed.'); return; }
-                  console.log('Seeding ' + seedTasks.length + ' starter tasks.');
-                  const stmt = db.prepare('INSERT INTO tasks (title, description, priority, category, status, dueDate, assignedTo, department) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-                  seedTasks.forEach(task => {
-                    stmt.run(task.title, task.description, task.priority, task.category, task.status, task.dueDate, task.assignedTo, task.department);
-                  });
-                  stmt.finalize();
-               });
-});
+        const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM tasks');
+        if (rows[0].n > 0) {
+                console.log('Tasks table already populated (' + rows[0].n + ' rows) — skipping seed.');
+                return;
+        }
+        console.log('Seeding ' + seedTasks.length + ' starter tasks.');
+        for (const t of seedTasks) {
+                await pool.query(
+                        'INSERT INTO tasks (title, description, priority, category, status, "dueDate", "assignedTo", department) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+                        [t.title, t.description, t.priority, t.category, t.status, t.dueDate, t.assignedTo, t.department]
+                );
+        }
+}
 
 // Auth endpoint
 app.post('/api/login', (req, res) => {
@@ -267,23 +279,26 @@ app.post('/api/login', (req, res) => {
 });
 
 // Get tasks - filtered by department for non-admin
-app.get('/api/tasks', authenticate, (req, res) => {
-        let query = 'SELECT * FROM tasks ORDER BY dueDate ASC';
-        let params = [];
+app.get('/api/tasks', authenticate, async (req, res) => {
+        try {
+                let query = 'SELECT * FROM tasks ORDER BY "dueDate" ASC';
+                let params = [];
 
-          if (req.user.role !== 'admin') {
-                    query = 'SELECT * FROM tasks WHERE department = ? OR assignedTo = ? ORDER BY dueDate ASC';
-                    params = [req.user.department, req.user.email];
-          }
+                if (req.user.role !== 'admin') {
+                        query = 'SELECT * FROM tasks WHERE department = $1 OR "assignedTo" = $2 ORDER BY "dueDate" ASC';
+                        params = [req.user.department, req.user.email];
+                }
 
-          db.all(query, params, (err, rows) => {
-                    if (err) return res.status(500).json({error: 'Database error'});
-                    res.json(rows);
-          });
+                const { rows } = await pool.query(query, params);
+                res.json(rows);
+        } catch (err) {
+                console.error('GET /api/tasks failed', err);
+                res.status(500).json({error: 'Database error'});
+        }
 });
 
 // Create task
-app.post('/api/tasks', authenticate, (req, res) => {
+app.post('/api/tasks', authenticate, async (req, res) => {
         const schema = {
                   title: { required: true, type: 'string', minLength: 1, maxLength: 200, pattern: /^[a-zA-Z0-9\s.,!?()\-:'\/&]+$/ },
                   description: { type: 'string', maxLength: 2000 },
@@ -301,23 +316,25 @@ app.post('/api/tasks', authenticate, (req, res) => {
         }
 
            const { title, description, priority, category, status, dueDate, assignedTo, department } = req.body;
-        db.run(
-                  'INSERT INTO tasks (title, description, priority, category, status, dueDate, assignedTo, department) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                  [title, description || '', priority || 'Medium', category || 'Operations', status || 'Active', dueDate || null, assignedTo || req.user.email, department || req.user.department],
-                  function(err) {
-                              if (err) return res.status(500).json({error: 'Database error'});
-                              db.run('INSERT INTO audit_log (username, action, taskId, taskTitle) VALUES (?, ?, ?, ?)',
-                                             [req.user.email, 'CREATE', this.lastID, title]);
-                              db.get('SELECT * FROM tasks WHERE id = ?', [this.lastID], (err, row) => {
-                                            if (err) return res.status(500).json({error: 'Database error'});
-                                            res.status(201).json(row);
-                              });
-                  }
+        try {
+                const { rows } = await pool.query(
+                        'INSERT INTO tasks (title, description, priority, category, status, "dueDate", "assignedTo", department) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+                        [title, description || '', priority || 'Medium', category || 'Operations', status || 'Active', dueDate || null, assignedTo || req.user.email, department || req.user.department]
                 );
+                const newTask = rows[0];
+                await pool.query(
+                        'INSERT INTO audit_log (username, action, "taskId", "taskTitle") VALUES ($1, $2, $3, $4)',
+                        [req.user.email, 'CREATE', newTask.id, title]
+                );
+                res.status(201).json(newTask);
+        } catch (err) {
+                console.error('POST /api/tasks failed', err);
+                res.status(500).json({error: 'Database error'});
+        }
 });
 
 // Update task
-app.put('/api/tasks/:id', authenticate, (req, res) => {
+app.put('/api/tasks/:id', authenticate, async (req, res) => {
         const taskId = parseInt(req.params.id);
         if (isNaN(taskId)) return res.status(400).json({error: 'Invalid task ID'});
 
@@ -338,41 +355,46 @@ app.put('/api/tasks/:id', authenticate, (req, res) => {
         }
 
           const { title, description, priority, category, status, dueDate, assignedTo, department } = req.body;
-        db.run(
-                  'UPDATE tasks SET title=?, description=?, priority=?, category=?, status=?, dueDate=?, assignedTo=?, department=?, updatedAt=CURRENT_TIMESTAMP WHERE id=?',
-                  [title, description, priority, category, status, dueDate, assignedTo, department, taskId],
-                  function(err) {
-                              if (err) return res.status(500).json({error: 'Database error'});
-                              if (this.changes === 0) return res.status(404).json({error: 'Task not found'});
-                              db.run('INSERT INTO audit_log (username, action, taskId, taskTitle) VALUES (?, ?, ?, ?)',
-                                             [req.user.email, 'UPDATE', taskId, title]);
-                              db.get('SELECT * FROM tasks WHERE id = ?', [taskId], (err, row) => {
-                                            if (err) return res.status(500).json({error: 'Database error'});
-                                            res.json(row);
-                              });
-                  }
+        try {
+                const { rows, rowCount } = await pool.query(
+                        'UPDATE tasks SET title=$1, description=$2, priority=$3, category=$4, status=$5, "dueDate"=$6, "assignedTo"=$7, department=$8, "updatedAt"=NOW() WHERE id=$9 RETURNING *',
+                        [title, description, priority, category, status, dueDate, assignedTo, department, taskId]
                 );
+                if (rowCount === 0) return res.status(404).json({error: 'Task not found'});
+                await pool.query(
+                        'INSERT INTO audit_log (username, action, "taskId", "taskTitle") VALUES ($1, $2, $3, $4)',
+                        [req.user.email, 'UPDATE', taskId, title]
+                );
+                res.json(rows[0]);
+        } catch (err) {
+                console.error('PUT /api/tasks/:id failed', err);
+                res.status(500).json({error: 'Database error'});
+        }
 });
 
 // Delete task
-app.delete('/api/tasks/:id', authenticate, (req, res) => {
+app.delete('/api/tasks/:id', authenticate, async (req, res) => {
         if (req.user.role !== 'admin') {
                   return res.status(403).json({error: 'Only admins can delete tasks'});
         }
         const taskId = parseInt(req.params.id);
         if (isNaN(taskId)) return res.status(400).json({error: 'Invalid task ID'});
 
-             db.get('SELECT title FROM tasks WHERE id = ?', [taskId], (err, row) => {
-                       if (err) return res.status(500).json({error: 'Database error'});
-                       if (!row) return res.status(404).json({error: 'Task not found'});
+        try {
+                const { rows } = await pool.query('SELECT title FROM tasks WHERE id = $1', [taskId]);
+                if (rows.length === 0) return res.status(404).json({error: 'Task not found'});
+                const taskTitle = rows[0].title;
 
-                        db.run('DELETE FROM tasks WHERE id = ?', [taskId], function(err) {
-                                    if (err) return res.status(500).json({error: 'Database error'});
-                                    db.run('INSERT INTO audit_log (username, action, taskId, taskTitle) VALUES (?, ?, ?, ?)',
-                                                   [req.user.email, 'DELETE', taskId, row.title]);
-                                    res.json({message: 'Task deleted successfully'});
-                        });
-             });
+                await pool.query('DELETE FROM tasks WHERE id = $1', [taskId]);
+                await pool.query(
+                        'INSERT INTO audit_log (username, action, "taskId", "taskTitle") VALUES ($1, $2, $3, $4)',
+                        [req.user.email, 'DELETE', taskId, taskTitle]
+                );
+                res.json({message: 'Task deleted successfully'});
+        } catch (err) {
+                console.error('DELETE /api/tasks/:id failed', err);
+                res.status(500).json({error: 'Database error'});
+        }
 });
 
 // Users list (admin only)
@@ -384,14 +406,17 @@ app.get('/api/users', authenticate, (req, res) => {
 });
 
 // Audit log (admin only)
-app.get('/api/audit', authenticate, (req, res) => {
+app.get('/api/audit', authenticate, async (req, res) => {
         if (req.user.role !== 'admin') {
                   return res.status(403).json({error: 'Admin access required'});
         }
-        db.all('SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 100', (err, rows) => {
-                  if (err) return res.status(500).json({error: 'Database error'});
-                  res.json(rows);
-        });
+        try {
+                const { rows } = await pool.query('SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 100');
+                res.json(rows);
+        } catch (err) {
+                console.error('GET /api/audit failed', err);
+                res.status(500).json({error: 'Database error'});
+        }
 });
 
 // Health check
@@ -410,6 +435,13 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-        console.log(`ODB Task Manager running on port ${PORT}`);
-});
+initDb()
+        .then(() => {
+                app.listen(PORT, () => {
+                        console.log(`ODB Task Manager running on port ${PORT}`);
+                });
+        })
+        .catch((err) => {
+                console.error('[FATAL] Failed to initialize database', err);
+                process.exit(1);
+        });
