@@ -20,7 +20,9 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -y
           sudo apt-get install -y postgresql-client-18
-          pg_dump --version
+          # The runner ships with pg 16 pre-installed and that wins on PATH;
+          # call the PG18 binary by full path everywhere to avoid version mismatch.
+          /usr/lib/postgresql/18/bin/pg_dump --version
 
       - name: Dump DB and gzip
         env:
@@ -33,7 +35,7 @@ jobs:
           mkdir -p backup
           STAMP=$(date -u +%Y-%m-%d_%H%M)
           OUT="backup/tasks-${STAMP}.sql.gz"
-          pg_dump --no-owner --no-acl --clean --if-exists "$DATABASE_URL" | gzip -9 > "$OUT"
+          /usr/lib/postgresql/18/bin/pg_dump --no-owner --no-acl --clean --if-exists "$DATABASE_URL" | gzip -9 > "$OUT"
           SIZE=$(stat -c%s "$OUT")
           if [ "$SIZE" -lt 256 ]; then
             echo "Backup file suspiciously small: $SIZE bytes"
