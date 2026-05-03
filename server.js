@@ -3,6 +3,8 @@ const path = require('path');
 const { Pool } = require('pg');
 const cors = require('cors');
 const crypto = require('crypto');
+const cookieParser = require('cookie-parser');
+const { OAuth2Client } = require('google-auth-library');
 
 const app = express();
 
@@ -78,8 +80,11 @@ function generateToken(user) {
                   id: user.id,
                   username: user.username,
                   email: user.email,
+                  firstName: user.firstName,
+                  lastName: user.lastName,
                   department: user.department,
                   role: user.role,
+                  jobTitle: user.jobTitle,
                   exp: Date.now() + TOKEN_EXPIRY
         };
         const payloadStr = JSON.stringify(payload);
@@ -101,18 +106,50 @@ function verifyToken(token) {
         }
 }
 
+// Read JWT from auth_token cookie first, then fall back to Authorization header
+// for any legacy clients still in transition. Cookie is the canonical channel.
 function authenticate(req, res, next) {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        let token = null;
+        if (req.cookies && req.cookies.auth_token) {
+                  token = req.cookies.auth_token;
+        } else {
+                  const authHeader = req.headers.authorization;
+                  if (authHeader && authHeader.startsWith('Bearer ')) {
+                              token = authHeader.substring(7);
+                  }
+        }
+        if (!token) {
                   return res.status(401).json({error: 'Authentication required'});
         }
-        const token = authHeader.substring(7);
         const payload = verifyToken(token);
         if (!payload) {
                   return res.status(401).json({error: 'Invalid or expired token'});
         }
         req.user = payload;
         next();
+}
+
+// Auth cookie config — domain is settable so the cookie can be shared across
+// future *.overlanddesignbuild.com apps (kb, erp, etc.) for cross-app SSO.
+function setAuthCookie(res, token) {
+        res.cookie('auth_token', token, {
+                  httpOnly: true,
+                  secure: process.env.NODE_ENV === 'production',
+                  sameSite: 'lax',
+                  domain: process.env.COOKIE_DOMAIN || undefined,
+                  path: '/',
+                  maxAge: TOKEN_EXPIRY
+        });
+}
+
+function clearAuthCookie(res) {
+        res.clearCookie('auth_token', {
+                  httpOnly: true,
+                  secure: process.env.NODE_ENV === 'production',
+                  sameSite: 'lax',
+                  domain: process.env.COOKIE_DOMAIN || undefined,
+                  path: '/'
+        });
 }
 
 // Middleware
@@ -123,6 +160,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(rateLimit);
 
@@ -160,10 +198,20 @@ pool.on('error', (err) => {
   console.error('[FATAL] Unexpected database pool error', err);
 });
 
-if (!process.env.ADMIN_PASSWORD) {
-  console.warn('[WARN] ADMIN_PASSWORD not set — falling back to hardcoded default. Set ADMIN_PASSWORD in the Render environment.');
+// Google OAuth client. Lazy/null so the server boots in CI / local dev without
+// Google credentials — only the auth routes themselves require them.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const OAUTH_REDIRECT_URI = process.env.OAUTH_REDIRECT_URI;
+const ALLOWED_EMAIL_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN || 'overlanddesignbuild.com';
+
+const oauthClient = (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && OAUTH_REDIRECT_URI)
+        ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, OAUTH_REDIRECT_URI)
+        : null;
+
+if (!oauthClient) {
+        console.warn('[WARN] Google OAuth not configured — /auth/google/* routes will return 503 until GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and OAUTH_REDIRECT_URI are all set.');
 }
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'ODB-TaskMgr-2026!';
 
 // Active employees from Overland Design-Build
 const users = [
@@ -233,48 +281,97 @@ async function initDb() {
         }
 }
 
-// Auth endpoint
-app.post('/api/login', (req, res) => {
-        const { username, password } = req.body;
+// === Google SSO ===
+// Flow: GET /auth/google/login → redirect to Google with random state.
+//       GET /auth/google/callback → verify state + ID token, look up user by email,
+//                                    issue JWT in HttpOnly cookie scoped to the
+//                                    parent domain (so future *.overlanddesignbuild.com
+//                                    apps share the session), redirect to /.
+//       POST /auth/logout → clear the cookie.
+//       GET /api/me → returns the current user from the cookie's JWT (used by SPA on load).
 
-           if (!username || !password) {
-                     return res.status(400).json({error: 'Username and password required'});
-           }
-
-           const usernamePattern = /^[a-zA-Z0-9.@_-]{3,100}$/;
-        if (!usernamePattern.test(username)) {
-                  return res.status(400).json({error: 'Invalid username format'});
+app.get('/auth/google/login', (req, res) => {
+        if (!oauthClient) {
+                  return res.status(503).send('Google OAuth not configured.');
         }
+        const state = crypto.randomBytes(32).toString('hex');
+        res.cookie('oauth_state', state, {
+                  httpOnly: true,
+                  secure: process.env.NODE_ENV === 'production',
+                  sameSite: 'lax',
+                  path: '/auth/google/callback',
+                  maxAge: 10 * 60 * 1000
+        });
+        const url = oauthClient.generateAuthUrl({
+                  access_type: 'online',
+                  scope: ['openid', 'email', 'profile'],
+                  state,
+                  hd: ALLOWED_EMAIL_DOMAIN
+        });
+        res.redirect(url);
+});
 
-           // Find user by email (case-insensitive)
-           const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() ||
-                     u.email.toLowerCase() === username.toLowerCase());
-
-           if (!user) {
-                     return res.status(401).json({error: 'Invalid credentials'});
-           }
-
-           // Timing-safe comparison to avoid leaking password length / prefix matches
-           const provided = Buffer.from(String(password));
-           const expected = Buffer.from(ADMIN_PASSWORD);
-           const passwordOk = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
-           if (!passwordOk) {
-                     return res.status(401).json({error: 'Invalid credentials'});
-           }
-
-           const token = generateToken(user);
-        res.json({
-                  token,
-                  user: {
-                              id: user.id,
-                              username: user.username,
-                              email: user.email,
-                              firstName: user.firstName,
-                              lastName: user.lastName,
-                              department: user.department,
-                              role: user.role,
-                              jobTitle: user.jobTitle
+app.get('/auth/google/callback', async (req, res) => {
+        if (!oauthClient) {
+                  return res.status(503).send('Google OAuth not configured.');
+        }
+        const { code, state, error } = req.query;
+        if (error) {
+                  return res.status(400).send('Google sign-in was cancelled or failed.');
+        }
+        const cookieState = req.cookies && req.cookies.oauth_state;
+        if (!state || !cookieState || state !== cookieState) {
+                  return res.status(400).send('Invalid OAuth state. Please try signing in again.');
+        }
+        res.clearCookie('oauth_state', { path: '/auth/google/callback' });
+        if (!code) {
+                  return res.status(400).send('Missing authorization code.');
+        }
+        try {
+                  const { tokens } = await oauthClient.getToken(code);
+                  const ticket = await oauthClient.verifyIdToken({
+                              idToken: tokens.id_token,
+                              audience: GOOGLE_CLIENT_ID
+                  });
+                  const payload = ticket.getPayload();
+                  const email = (payload.email || '').toLowerCase();
+                  if (!payload.email_verified) {
+                              console.warn('[auth] rejected unverified Google email', email);
+                              return res.status(403).send('Your Google email is not verified.');
                   }
+                  if (payload.hd !== ALLOWED_EMAIL_DOMAIN) {
+                              console.warn('[auth] rejected non-Workspace login from', email, 'hd=', payload.hd);
+                              return res.status(403).send(`Sign-in is restricted to ${ALLOWED_EMAIL_DOMAIN} accounts.`);
+                  }
+                  const user = users.find(u => u.email.toLowerCase() === email);
+                  if (!user) {
+                              console.warn('[auth] no provisioned user for', email);
+                              return res.status(403).send('Your account is not provisioned for this app. Ask Erik to add you.');
+                  }
+                  const token = generateToken(user);
+                  setAuthCookie(res, token);
+                  res.redirect('/');
+        } catch (err) {
+                  console.error('[auth] callback failed', err);
+                  res.status(500).send('Sign-in failed. Please try again.');
+        }
+});
+
+app.post('/auth/logout', (req, res) => {
+        clearAuthCookie(res);
+        res.json({ ok: true });
+});
+
+app.get('/api/me', authenticate, (req, res) => {
+        res.json({
+                  id: req.user.id,
+                  username: req.user.username,
+                  email: req.user.email,
+                  firstName: req.user.firstName,
+                  lastName: req.user.lastName,
+                  department: req.user.department,
+                  role: req.user.role,
+                  jobTitle: req.user.jobTitle
         });
 });
 
