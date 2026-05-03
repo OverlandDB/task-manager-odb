@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: tasks_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d tasks_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read Node version from .nvmrc
+        id: nvm
+        run: echo "version=$(cat .nvmrc)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.nvm.outputs.version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax-check server.js
+        run: node --check server.js
+
+      - name: Boot smoke test against ephemeral Postgres
+        env:
+          PORT: 3000
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/tasks_ci
+          JWT_SECRET: ci-secret
+          ADMIN_PASSWORD: ci-password
+        run: |
+          node server.js > server.log 2>&1 &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/health > /dev/null; then
+              echo "Server is up"
+              # Confirm initDb() actually seeded the schema
+              if ! grep -qE "Seeding 18 starter tasks|already populated" server.log; then
+                echo "initDb() did not log expected schema/seed message:"
+                cat server.log
+                kill $SERVER_PID 2>/dev/null
+                exit 1
+              fi
+              kill $SERVER_PID 2>/dev/null
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "Server failed to start within 15s. Logs:"
+          cat server.log
+          kill $SERVER_PID 2>/dev/null
+          exit 1

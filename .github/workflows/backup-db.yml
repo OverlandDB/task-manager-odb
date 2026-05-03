@@ -1,0 +1,50 @@
+name: Backup Postgres DB
+
+on:
+  schedule:
+    # Daily at 07:00 UTC = 01:00 Mountain Standard Time (Arvada, CO).
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Postgres 16 client (matches Render server major version)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client-16
+          pg_dump --version
+
+      - name: Dump DB and gzip
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_EXTERNAL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL_EXTERNAL secret not set in repo"
+            exit 1
+          fi
+          mkdir -p backup
+          STAMP=$(date -u +%Y-%m-%d_%H%M)
+          OUT="backup/tasks-${STAMP}.sql.gz"
+          pg_dump --no-owner --no-acl --clean --if-exists "$DATABASE_URL" | gzip -9 > "$OUT"
+          SIZE=$(stat -c%s "$OUT")
+          if [ "$SIZE" -lt 256 ]; then
+            echo "Backup file suspiciously small: $SIZE bytes"
+            gunzip -c "$OUT" | head -50
+            exit 1
+          fi
+          echo "Backup OK: $OUT ($SIZE bytes)"
+
+      - name: Upload as artifact (90-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tasks-db-backup-${{ github.run_id }}
+          path: backup/*.sql.gz
+          retention-days: 90
